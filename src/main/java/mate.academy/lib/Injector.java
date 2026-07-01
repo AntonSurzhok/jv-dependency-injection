@@ -1,6 +1,8 @@
 package mate.academy.lib;
 
 import java.lang.reflect.Field;
+import java.util.HashMap;
+import java.util.Map;
 import mate.academy.service.FileReaderService;
 import mate.academy.service.ProductParser;
 import mate.academy.service.ProductService;
@@ -11,24 +13,39 @@ import mate.academy.service.impl.ProductServiceImpl;
 public class Injector {
     private static final Injector injector = new Injector();
 
+    private final Map<Class<?>, Object> instances = new HashMap<>();
+
+    private final Map<Class<?>, Class<?>> interfaceImplementationMap = Map.of(
+            ProductService.class, ProductServiceImpl.class,
+            ProductParser.class, ProductParserImpl.class,
+            FileReaderService.class, FileReaderServiceImpl.class
+    );
+
+    private Injector() {
+    }
+
     public static Injector getInjector() {
         return injector;
     }
 
     public Object getInstance(Class<?> interfaceClazz) {
+        if (instances.containsKey(interfaceClazz)) {
+            return instances.get(interfaceClazz);
+        }
+
         Class<?> implementationClass = findImplementation(interfaceClazz);
 
         if (!implementationClass.isAnnotationPresent(Component.class)) {
             throw new RuntimeException(
-                    implementationClass.getSimpleName() + " is not a component");
+                    implementationClass.getSimpleName()
+                            + " is not annotated with @Component"
+            );
         }
 
         try {
             Object instance = implementationClass.getDeclaredConstructor().newInstance();
 
-            Field[] fields = implementationClass.getDeclaredFields();
-
-            for (Field field : fields) {
+            for (Field field : implementationClass.getDeclaredFields()) {
                 if (field.isAnnotationPresent(Inject.class)) {
                     Object dependency = getInstance(field.getType());
                     field.setAccessible(true);
@@ -36,27 +53,25 @@ public class Injector {
                 }
             }
 
+            instances.put(interfaceClazz, instance);
             return instance;
-        } catch (Exception e) {
-            throw new RuntimeException("Can't create instance of "
-                    + implementationClass.getName(), e);
+        } catch (ReflectiveOperationException e) {
+            throw new RuntimeException(
+                    "Can't create instance of " + implementationClass.getSimpleName(),
+                    e
+            );
         }
     }
 
     private Class<?> findImplementation(Class<?> interfaceClazz) {
-        if (interfaceClazz.equals(ProductService.class)) {
-            return ProductServiceImpl.class;
+        Class<?> implementation = interfaceImplementationMap.get(interfaceClazz);
+
+        if (implementation == null) {
+            throw new RuntimeException(
+                    "No implementation found for " + interfaceClazz.getSimpleName()
+            );
         }
 
-        if (interfaceClazz.equals(ProductParser.class)) {
-            return ProductParserImpl.class;
-        }
-
-        if (interfaceClazz.equals(FileReaderService.class)) {
-            return FileReaderServiceImpl.class;
-        }
-
-        throw new RuntimeException(
-                "No implementation found for " + interfaceClazz.getName());
+        return implementation;
     }
 }
